@@ -25,8 +25,8 @@ body {
 .container {
   max-width: 650px;
   margin: auto;
-  background: #172235;
   padding: 20px;
+  background: #172235;
   border-radius: 15px;
 }
 
@@ -41,6 +41,7 @@ h2 {
 }
 
 video {
+  display: block;
   width: 100%;
   border-radius: 10px;
   background: black;
@@ -57,7 +58,7 @@ video {
 button {
   padding: 12px 18px;
   margin: 6px;
-  border: none;
+  border: 0;
   border-radius: 8px;
   cursor: pointer;
   font-weight: bold;
@@ -71,6 +72,11 @@ button {
 .capture {
   background: #2563eb;
   color: white;
+}
+
+.clear {
+  background: #f59e0b;
+  color: black;
 }
 
 .stop {
@@ -90,6 +96,11 @@ button {
   margin-top: 15px;
   border-radius: 10px;
 }
+
+#timeInfo {
+  color: #38bdf8;
+  margin-top: 10px;
+}
 </style>
 </head>
 
@@ -107,19 +118,14 @@ button {
 
 <div id="status">SISTEM BELUM DIAKTIFKAN</div>
 
-<button class="start" onclick="startCamera()">
-AKTIFKAN KAMERA
-</button>
-
-<button class="capture" onclick="captureSnapshot()">
-AMBIL SNAPSHOT
-</button>
-
-<button class="stop" onclick="stopCamera()">
-MATIKAN KAMERA
-</button>
+<button class="start" id="startButton">AKTIFKAN KAMERA</button>
+<button class="capture" id="captureButton">AMBIL SNAPSHOT</button>
+<button class="clear" id="clearButton">HAPUS SNAPSHOT</button>
+<button class="stop" id="stopButton">MATIKAN KAMERA</button>
 
 <canvas id="snapshot"></canvas>
+
+<div id="timeInfo"></div>
 
 </div>
 
@@ -127,113 +133,174 @@ MATIKAN KAMERA
 const video = document.getElementById("camera");
 const faceCanvas = document.getElementById("faceCanvas");
 const statusText = document.getElementById("status");
-
-let cameraStream = null;
-let detectionTimer = null;
-let modelsReady = false;
+const snapshot = document.getElementById("snapshot");
+const timeInfo = document.getElementById("timeInfo");
 
 const MODEL_URL =
 "https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights";
 
+let stream = null;
+let running = false;
+let busy = false;
+let modelsReady = false;
+let capturedForCurrentDetection = false;
+
+function setStatus(message, color = "#facc15") {
+  statusText.textContent = message;
+  statusText.style.color = color;
+}
+
 async function startCamera() {
   try {
-    statusText.textContent = "MEMUAT MODEL DETEKSI WAJAH...";
+    if (running) return;
+
+    setStatus("MEMUAT SISTEM DETEKSI WAJAH...");
+
+    if (typeof faceapi === "undefined") {
+      throw new Error("Library deteksi wajah gagal dimuat.");
+    }
 
     if (!modelsReady) {
       await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
       modelsReady = true;
     }
 
-    cameraStream = await navigator.mediaDevices.getUserMedia({
+    setStatus("MEMBUKA KAMERA...");
+
+    stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "user" },
       audio: false
     });
 
-    video.srcObject = cameraStream;
-
-    await new Promise(resolve => {
-      video.onloadedmetadata = resolve;
-    });
-
+    video.srcObject = stream;
     await video.play();
 
     faceCanvas.width = video.videoWidth;
     faceCanvas.height = video.videoHeight;
 
-    statusText.textContent = "KAMERA AKTIF - MENDETEKSI WAJAH";
+    running = true;
+    capturedForCurrentDetection = false;
+
+    setStatus("KAMERA AKTIF - MEMERIKSA WAJAH", "#38bdf8");
 
     detectFace();
 
   } catch (error) {
-    statusText.textContent = "ERROR: " + error.message;
+    setStatus("ERROR: " + error.message, "#ef4444");
   }
 }
 
 async function detectFace() {
-  if (!cameraStream || video.paused) return;
+  if (!running || busy) return;
 
-  const result = await faceapi.detectAllFaces(
-    video,
-    new faceapi.TinyFaceDetectorOptions()
-  );
+  busy = true;
 
-  const context = faceCanvas.getContext("2d");
-  context.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+  try {
+    const detections = await faceapi.detectAllFaces(
+      video,
+      new faceapi.TinyFaceDetectorOptions({
+        inputSize: 320,
+        scoreThreshold: 0.35
+      })
+    );
 
-  const resized = faceapi.resizeResults(result, {
-    width: faceCanvas.width,
-    height: faceCanvas.height
-  });
+    const context = faceCanvas.getContext("2d");
+    context.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
 
-  faceapi.draw.drawDetections(faceCanvas, resized);
+    const resized = faceapi.resizeResults(detections, {
+      width: faceCanvas.width,
+      height: faceCanvas.height
+    });
 
-  if (result.length > 0) {
-    statusText.textContent = "WAJAH TERDETEKSI";
-    statusText.style.color = "#22c55e";
-  } else {
-    statusText.textContent = "WAJAH TIDAK TERDETEKSI";
-    statusText.style.color = "#facc15";
+    faceapi.draw.drawDetections(faceCanvas, resized);
+
+    if (detections.length > 0) {
+      setStatus("WAJAH TERDETEKSI", "#22c55e");
+
+      if (!capturedForCurrentDetection) {
+        captureSnapshot();
+        capturedForCurrentDetection = true;
+      }
+
+    } else {
+      setStatus("WAJAH TIDAK TERDETEKSI", "#facc15");
+      capturedForCurrentDetection = false;
+    }
+
+  } catch (error) {
+    running = false;
+    setStatus("ERROR DETEKSI: " + error.message, "#ef4444");
+  } finally {
+    busy = false;
+
+    if (running) {
+      setTimeout(detectFace, 500);
+    }
   }
-
-  detectionTimer = setTimeout(detectFace, 300);
 }
 
 function captureSnapshot() {
-  if (!cameraStream) {
-    statusText.textContent = "AKTIFKAN KAMERA TERLEBIH DAHULU";
+  if (!running || video.readyState < 2) {
+    setStatus("AKTIFKAN KAMERA TERLEBIH DAHULU");
     return;
   }
 
-  const canvas = document.getElementById("snapshot");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  snapshot.width = video.videoWidth;
+  snapshot.height = video.videoHeight;
 
-  canvas.getContext("2d").drawImage(
-    video, 0, 0, canvas.width, canvas.height
+  snapshot.getContext("2d").drawImage(
+    video,
+    0,
+    0,
+    snapshot.width,
+    snapshot.height
   );
 
-  canvas.style.display = "block";
+  snapshot.style.display = "block";
+
+  timeInfo.textContent =
+    "Waktu Snapshot: " + new Date().toLocaleString("id-ID");
+}
+
+function clearSnapshot() {
+  const context = snapshot.getContext("2d");
+  context.clearRect(0, 0, snapshot.width, snapshot.height);
+
+  snapshot.style.display = "none";
+  timeInfo.textContent = "";
+  capturedForCurrentDetection = false;
+
+  setStatus("SNAPSHOT DIHAPUS", "#38bdf8");
 }
 
 function stopCamera() {
-  if (detectionTimer) {
-    clearTimeout(detectionTimer);
-    detectionTimer = null;
-  }
+  running = false;
 
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(track => track.stop());
-    cameraStream = null;
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
   }
 
   video.srcObject = null;
 
-  const context = faceCanvas.getContext("2d");
-  context.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+  faceCanvas.getContext("2d").clearRect(
+    0, 0, faceCanvas.width, faceCanvas.height
+  );
 
-  statusText.textContent = "KAMERA DIMATIKAN";
-  statusText.style.color = "#facc15";
+  setStatus("KAMERA DIMATIKAN", "#ef4444");
 }
+
+document.getElementById("startButton")
+  .addEventListener("click", startCamera);
+
+document.getElementById("captureButton")
+  .addEventListener("click", captureSnapshot);
+
+document.getElementById("clearButton")
+  .addEventListener("click", clearSnapshot);
+
+document.getElementById("stopButton")
+  .addEventListener("click", stopCamera);
 </script>
 
 </body>
