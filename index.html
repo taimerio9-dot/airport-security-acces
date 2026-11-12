@@ -1,0 +1,212 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIRPORT SECURITY ACCESS - TIER 2</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 25px;
+      background: #0b1220;
+      color: white;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+
+    .container {
+      max-width: 650px;
+      margin: auto;
+      padding: 25px;
+      background: #172235;
+      border: 1px solid #334155;
+      border-radius: 15px;
+    }
+
+    h1 {
+      color: #38bdf8;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+
+    video, canvas {
+      width: 100%;
+      max-width: 500px;
+      background: black;
+      border: 3px solid #38bdf8;
+      border-radius: 12px;
+      margin-top: 15px;
+    }
+
+    canvas {
+      display: none;
+    }
+
+    button {
+      padding: 12px 18px;
+      margin: 8px 4px;
+      border: none;
+      border-radius: 8px;
+      background: #0284c7;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .stop {
+      background: #dc2626;
+    }
+
+    #status {
+      margin-top: 18px;
+      padding: 12px;
+      background: #0f172a;
+      border-radius: 8px;
+      color: #facc15;
+    }
+
+    #snapshotStatus {
+      color: #86efac;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+
+    <h1>AIRPORT SECURITY ACCESS</h1>
+    <p class="subtitle">TIER 2 - CAMERA MONITORING SYSTEM</p>
+
+    <h3>STAFF FACE MONITORING</h3>
+
+    <video id="camera" autoplay playsinline muted></video>
+
+    <div>
+      <button id="startButton" onclick="startCamera()">
+        AKTIFKAN KAMERA
+      </button>
+
+      <button id="captureButton" onclick="captureSnapshot()" disabled>
+        AMBIL SNAPSHOT
+      </button>
+
+      <button class="stop" onclick="stopCamera()">
+        MATIKAN KAMERA
+      </button>
+    </div>
+
+    <p id="status">STATUS: KAMERA BELUM AKTIF</p>
+
+    <h3>HASIL SNAPSHOT</h3>
+
+    <canvas id="snapshot"></canvas>
+
+    <p id="snapshotStatus"></p>
+
+  </div>
+
+  <script>
+    let cameraStream = null;
+
+    async function startCamera() {
+      const video = document.getElementById("camera");
+      const status = document.getElementById("status");
+
+      try {
+        if (!navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia) {
+          throw new Error("Browser tidak mendukung akses kamera.");
+        }
+
+        status.innerText = "MEMINTA IZIN KAMERA...";
+
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
+          audio: false
+        });
+
+        video.srcObject = cameraStream;
+        await video.play();
+
+        status.innerText = "STATUS: KAMERA AKTIF";
+        status.style.color = "#22c55e";
+
+        document.getElementById("captureButton").disabled = false;
+        document.getElementById("startButton").disabled = true;
+
+      } catch (error) {
+        status.innerText =
+          "ERROR: " + error.name + " - " + error.message;
+
+        status.style.color = "#ef4444";
+        console.error(error);
+      }
+    }
+
+    function captureSnapshot() {
+      const video = document.getElementById("camera");
+      const canvas = document.getElementById("snapshot");
+      const context = canvas.getContext("2d");
+
+      if (!cameraStream || video.readyState < 2) {
+        alert("Aktifkan kamera terlebih dahulu.");
+        return;
+      }
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      context.drawImage(
+        video,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+      canvas.style.display = "block";
+
+      document.getElementById("snapshotStatus").innerText =
+        "SNAPSHOT BERHASIL DIAMBIL";
+    }
+
+    function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+
+      document.getElementById("camera").srcObject = null;
+      document.getElementById("captureButton").disabled = true;
+      document.getElementById("startButton").disabled = false;
+
+      document.getElementById("status").innerText =
+        "STATUS: KAMERA DIMATIKAN";
+
+      document.getElementById("status").style.color = "#facc15";
+    }
+  </script>
+
+</body>
+</html>
